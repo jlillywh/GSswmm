@@ -1,0 +1,110 @@
+[TITLE]
+Storage and Release Test Model for GoldSim-SWMM Bridge
+
+[OPTIONS]
+FLOW_UNITS CFS
+INFILTRATION HORTON
+FLOW_ROUTING KINWAVE
+START_DATE 01/01/2020
+START_TIME 00:00:00
+END_DATE 01/02/2020
+END_TIME 00:00:00
+REPORT_STEP 00:05:00
+WET_STEP 00:05:00
+DRY_STEP 01:00:00
+ROUTING_STEP 300
+ALLOW_PONDING NO
+INERTIAL_DAMPING PARTIAL
+VARIABLE_STEP 0.75
+LENGTHENING_STEP 0
+MIN_SURFAREA 0
+NORMAL_FLOW_LIMITED BOTH
+SKIP_STEADY_STATE NO
+FORCE_MAIN_EQUATION H-W
+LINK_OFFSETS DEPTH
+MIN_SLOPE 0
+
+[JUNCTIONS]
+;;Name Elevation MaxDepth InitDepth SurDepth Aponded
+J1 100 10 0 0 0
+
+[STORAGE]
+;;Name Elevation MaxDepth InitDepth Shape Curve_Name/Params Ponded_Area Evap
+POND1 95 25 0 FUNCTIONAL 1000 200 1 0
+
+[OUTFALLS]
+;;Name Elevation Type Stage Data Gated Route To
+OUT1 90 FREE NO
+
+[CONDUITS]
+;;Name From Node To Node Length Roughness InOffset OutOffset InitFlow MaxFlow
+C1 J1 POND1 100 0.01 0 0 0 0
+
+[ORIFICES]
+;;Name From Node To Node Type Offset Qcoeff Gated CloseTime
+OR1 POND1 OUT1 BOTTOM 0 0.65 NO 0
+
+[WEIRS]
+;;Name From Node To Node Type CrestHt Qcoeff Gated EndCon EndCoeff Surcharge RoadWidth RoadSurf
+W1 POND1 OUT1 TRANSVERSE 14 3.33 NO 0 0 YES
+
+[XSECTIONS]
+;;Link Shape Geom1 Geom2 Geom3 Geom4 Barrels
+C1 CIRCULAR 2 0 0 0 1
+OR1 CIRCULAR 0.3 0 0 0
+W1 RECT_OPEN 10 10 0 0
+
+[SUBCATCHMENTS]
+;;Name Rain Gage Outlet Area %Imperv Width %Slope CurbLen SnowPack
+S1 RG1 J1 10 50 500 0.5 0
+S2 RG1 J1 15 60 600 0.6 0
+
+[SUBAREAS]
+;;Subcatchment N-Imperv N-Perv S-Imperv S-Perv PctZero RouteTo PctRouted
+S1 0.01 0.1 0.05 0.05 25 OUTLET
+S2 0.01 0.1 0.05 0.05 25 OUTLET
+
+[INFILTRATION]
+;;Subcatchment MaxRate MinRate Decay DryTime MaxInfil
+S1 3.0 0.5 4 7 0
+S2 3.0 0.5 4 7 0
+
+[RAINGAGES]
+;;Name Format Interval SCF Source
+RG1 INTENSITY 0:05 1.0 TIMESERIES DUMMY
+
+[TIMESERIES]
+;;Name Date Time Value
+DUMMY 0:00 0.0
+
+[REPORT]
+INPUT NO
+CONTROLS NO
+SUBCATCHMENTS ALL
+NODES ALL
+LINKS ALL
+
+[COORDINATES]
+;;Node           X-Coord            Y-Coord           
+J1               1000.000           1500.000          
+POND1            1000.000           1000.000          
+OUT1             1000.000           500.000           
+
+[VERTICES]
+;;Link           X-Coord            Y-Coord           
+
+[Polygons]
+;;Subcatchment   X-Coord            Y-Coord           
+S1               800.000            1700.000          
+S1               800.000            1500.000          
+S1               1000.000           1500.000          
+S1               1000.000           1700.000          
+S2               1000.000           1700.000          
+S2               1000.000           1500.000          
+S2               1200.000           1500.000          
+S2               1200.000           1700.000          
+
+[SYMBOLS]
+;;Gage           X-Coord            Y-Coord           
+RG1              700.000            1600.000          
+
