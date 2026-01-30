@@ -1,217 +1,118 @@
 # GSswmm: GoldSim-SWMM Bridge
 
-A dynamic link library (DLL) that integrates [EPA SWMM](https://www.epa.gov/water-research/storm-water-management-model-swmm) (Storm Water Management Model) with [GoldSim](https://www.goldsim.com/) simulation software. This bridge enables GoldSim users to leverage SWMM's advanced hydraulic and hydrologic modeling capabilities within their GoldSim simulations.
+A DLL that connects [GoldSim](https://www.goldsim.com/) with [EPA SWMM5](https://www.epa.gov/water-research/storm-water-management-model-swmm). The interface is defined by a JSON config file you generate from your SWMM model.
 
-## Quick Start (5 Minutes)
+## Quick Start
 
-### 1. Prerequisites
-- GoldSim (version 14+)
-- SWMM model file (`model.inp`)
-- Windows system (x64)
+### 1. Get Example Files
 
-### 2. Setup
+Three complete examples are included in the release package (examples.zip):
 
-**A. Copy Required Files to Your Model Directory**
+**Example 1 - Simple Model**
+- Simple kinematic wave model with precipitation gage
+- Includes a pond that drains via orifice
+- GoldSim controls rainfall and receives catchment runoff, pond volume, and outfall flow
+- Best for learning the basics
+
+**Example 2 - Site Drainage**
+- EPA SWMM example model with 7 subcatchments
+- Uses dynamic wave routing with pipes leading to outfall
+- GoldSim controls precipitation for all subcatchments
+- Demonstrates multi-subcatchment coupling
+
+**Example 3 - Pump Control**
+- EPA SWMM pump control example
+- Overrides SWMM's built-in pump rules with GoldSim controller
+- Uses deadband control based on pond water level
+- Demonstrates real-time structure control from GoldSim
+
+Extract examples.zip to get started with any of these models.
+
+### 2. Copy Files to GoldSim Directory
+
 ```
 Your_Model_Directory/
-├── GSswmm.dll          (from x64/Release/)
-├── swmm5.dll           (from project root)
-└── model.inp           (your SWMM model)
+├── GSswmm.dll              (from release)
+├── swmm5.dll               (from release)
+├── model.inp               (from example)
+└── SwmmGoldSimBridge.json  (from example)
 ```
 
-**B. Create External Element in GoldSim**
-1. Open your GoldSim model
-2. Insert → External Element
-3. Name it (e.g., "SWMM_Bridge")
-4. Configure the DLL:
-   - **DLL File**: Browse to `GSswmm.dll`
-   - **Function Name**: `SwmmGoldSimBridge` (exact spelling, case-sensitive!)
-   - **Unload DLL after each use**: ☐ Unchecked
-   - **Run Cleanup after each realization**: ☑ Checked
-   - **Run in separate process space**: ☑ Checked
+### 3. Configure GoldSim External Element
 
-**C. Configure Inputs and Outputs**
+- **DLL File**: `GSswmm.dll`
+- **Function Name**: `SwmmGoldSimBridge` (case-sensitive!)
+- **Unload DLL after each use**: ☐ Unchecked
+- **Run Cleanup after each realization**: ☑ Checked
+- **Run in separate process space**: ☑ Checked
 
-Go to the "Interface" tab:
+Click "Get Argument Info" to see input/output counts from your JSON (should show 2 inputs, 3 outputs).
 
-**Inputs (2 required)**:
-1. **ETime** 
-   - Type: Scalar
-   - Units: seconds
-   - Value: `ETime` (GoldSim's built-in elapsed time variable)
-2. **Rainfall**
-   - Type: Scalar
-   - Units: inches/hour (or mm/hour)
-   - Value: Link to your rainfall input (timeseries, constant, etc.)
+### 4. Match Time Steps
 
-**Outputs (1 required)**:
-1. **Runoff**
-   - Type: Scalar
-   - Units: Match your SWMM model's FLOW_UNITS (typically CFS or CMS)
+**CRITICAL**: Set GoldSim's Basic Time Step to match SWMM's `ROUTING_STEP` in `model.inp`.
 
-**D. Configure Simulation**
-1. Simulation → Settings
-2. Set your time step to match SWMM's ROUTING_STEP
-   - Example: If SWMM uses `0:05:00`, set GoldSim to `5 minutes`
-3. Set total duration (e.g., 2 hours)
+Example models use different timesteps - check each model's `[OPTIONS]` section.
 
-**E. Run**
-- Press **F5** or Simulation → Run
+**IMPORTANT**: When using Dynamic Wave (DYNWAVE) routing, you must set `VARIABLE_STEP 0` in your SWMM model options to disable variable timesteps. Variable timesteps cause inconsistent results between standalone SWMM and API coupling. See "Variable Timestep Limitation" section below for details.
+
+### 5. Map Inputs/Outputs
+
+Check the `SwmmGoldSimBridge.json` file in your chosen example to see the input/output mapping. Each example has different elements being monitored and controlled.
+
+### 6. Run
+
+Press F5 or Simulation → Run.
 
 ## How It Works
 
-The bridge acts as a translator between GoldSim and SWMM:
+1. **Config**: Bridge loads `SwmmGoldSimBridge.json` defining input/output mappings
+2. **Init**: Opens SWMM model, resolves element names to indices
+3. **Step**: Each time step, applies GoldSim inputs → calls `swmm_step()` → returns outputs
+4. **Cleanup**: Closes SWMM at end of realization
 
-1. **Initialization**: When GoldSim runs, the bridge loads and initializes the SWMM model
-2. **Time Stepping**: Each GoldSim time step, the bridge:
-   - Receives rainfall from GoldSim
-   - Sets the rainfall input in the SWMM model
-   - Advances SWMM one time step
-   - Calculates and returns runoff flow to GoldSim
-3. **Cleanup**: When the simulation completes, the bridge releases SWMM resources
+## Input/Output Mapping
 
-## Detailed Configuration
+The JSON file defines which SWMM elements map to GoldSim inputs/outputs.
 
-### SWMM Model File
+### Supported Inputs (from GoldSim → SWMM)
+- **ElapsedTime** (SYSTEM) - Automatically managed
+- **Rainfall** (GAGE) - Override timeseries rainfall
+- **Pump/Orifice/Weir settings** (LINK) - Control structures (0.0 to 1.0)
+- **Node lateral flows** (NODE) - External inflow/outflow
 
-Your `model.inp` file must include:
+### Supported Outputs (from SWMM → GoldSim)
+- **Subcatchment runoff** (SUBCATCH) - Runoff rate (CFS)
+- **Storage volume/depth/inflow** (STORAGE) - Volume (cu ft), depth (ft), and inflow rate (CFS)
+- **Link flows** (PUMP/ORIFICE/WEIR/CONDUIT) - Flow rate (CFS)
+- **Node inflow/depth** (JUNCTION) - Total inflow (CFS), depth (ft)
+- **Outfall flow** (OUTFALL) - Discharge rate (CFS)
 
-```ini
-[OPTIONS]
-FLOW_UNITS           CFS           ; or CMS, GPM, MGD, LPS
-ROUTING_STEP         0:05:00       ; Time step (match with GoldSim)
-REPORT_STEP          1:00:00       ; Reporting interval (can be longer)
-
-[SUBCATCHMENTS]
-;;Name           Rain Gage        Outlet           Area     %Imperv  Width    %Slope
-S1               RG1              J1               10       50       500      0.5
-
-[RAINGAGES]
-;;Name           Format    Interval SCF      DATATYPE    TIMESERIES
-RG1              TIMESERIES              1.0   RAINFALL    SWMM_Rainfall
-
-[TIMESERIES]
-;;Name           Date       Time       Value
-SWMM_Rainfall    1/1        0:00       0.0
-```
-
-The bridge will automatically update the `SWMM_Rainfall` timeseries with values from GoldSim.
-
-### Time Step Synchronization
-
-**Critical**: Your GoldSim time step must exactly match your SWMM model's ROUTING_STEP.
-
-| SWMM ROUTING_STEP | GoldSim Time Step |
-|-------------------|-------------------|
-| 0:00:30           | 30 seconds        |
-| 0:05:00           | 5 minutes         |
-| 0:15:00           | 15 minutes        |
-| 1:00:00           | 1 hour            |
-
-If these don't match, SWMM will run ahead or lag behind GoldSim's simulation clock.
-
-### Input Variables
-
-| Input | Type | Units | Description |
-|-------|------|-------|-------------|
-| ETime | Scalar | seconds | Elapsed simulation time (use GoldSim's built-in `ETime` variable) |
-| Rainfall | Scalar | in/hr or mm/hr | Rainfall intensity (connect to your input source) |
-
-### Output Variables
-
-| Output | Type | Units | Description |
-|--------|------|-------|-------------|
-| Runoff | Scalar | CFS, CMS, etc. | Runoff flow rate (matches SWMM's FLOW_UNITS setting) |
-
-## Verification and Testing
-
-### Pre-Run Checklist
-
-Before running your simulation, verify:
-
-- [ ] **Files Exist**: `GSswmm.dll`, `swmm5.dll`, `model.inp` all in model directory
-- [ ] **DLL Configuration**: Function name is exactly `SwmmGoldSimBridge`
-- [ ] **Inputs/Outputs**: 2 inputs (ETime, Rainfall), 1 output (Runoff)
-- [ ] **Time Step**: GoldSim time step matches SWMM ROUTING_STEP
-- [ ] **Units**: Rainfall and runoff units match your SWMM model
-- [ ] **Cleanup Enabled**: "Run Cleanup after each realization" is checked
-
-### Test with a Simple Model
-
-1. **Constant Rainfall**: Set rainfall input to a constant value (e.g., 1.0 in/hr)
-2. **Duration**: Run for 2 hours to verify the bridge works
-3. **Expected Output**: Runoff should increase and then decrease (typical watershed response)
-4. **Check Logs**: Review GoldSim's output and any error messages
-
-If runoff is always zero, check:
-- Time step matches SWMM routing step
-- Rainfall is being passed correctly
-- SWMM model has valid subcatchments
+**Complete reference**: See input/output property codes in `include/swmm5.h`
 
 ## Troubleshooting
 
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| "Cannot load DLL" | DLL not found | Copy `GSswmm.dll` to model directory |
-| "Cannot find function" | Function name incorrect | Verify it's exactly `SwmmGoldSimBridge` (case-sensitive) |
-| "Argument mismatch" error | Wrong number of inputs/outputs | Set 2 inputs (ETime, Rainfall) and 1 output (Runoff) |
-| "File not found" error | SWMM model not found | Copy `model.inp` to model directory; ensure correct path in DLL |
-| Runoff always zero | SWMM not receiving rainfall or time not advancing | Verify time step matches SWMM ROUTING_STEP; check rainfall value is being set |
-| Simulation crashes | Resource not released | Ensure "Run Cleanup after each realization" is checked |
-| DLL mismatch | Platform conflict | Use x64 DLL on 64-bit GoldSim (or x86 on 32-bit) |
-
-## API Reference
-
-### Function Signature
-
-```c
-void SwmmGoldSimBridge(int methodID, int *status, double *inargs, double *outargs)
-```
-
-### Method IDs
-
-| ID | Method | Description |
-|----|--------|-------------|
-| 0 | XF_INITIALIZE | Initialize SWMM model (called once at simulation start) |
-| 1 | XF_CALCULATE | Run one time step with given rainfall |
-| 2 | XF_REP_VERSION | Return DLL version (1.00) |
-| 3 | XF_REP_ARGUMENTS | Return number of inputs (2) and outputs (1) |
-| 99 | XF_CLEANUP | Cleanup and release resources (called at simulation end) |
-
-### Input Arguments (XF_CALCULATE)
-
-```
-inargs[0] = Elapsed Time (seconds)
-inargs[1] = Rainfall intensity (in/hr or mm/hr, based on SWMM model)
-```
-
-### Output Arguments (XF_CALCULATE)
-
-```
-outargs[0] = Runoff flow (CFS, CMS, etc., based on SWMM model)
-```
-
-### Status Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 (XF_SUCCESS) | Operation successful |
-| 1 (XF_FAILURE) | Operation failed |
-| -1 (XF_FAILURE_WITH_MSG) | Operation failed with error message |
+| Problem | Solution |
+|---------|----------|
+| "Cannot load DLL" | Copy `GSswmm.dll` and `swmm5.dll` to model directory |
+| "Cannot find function" | Function name is `SwmmGoldSimBridge` (case-sensitive) |
+| "Mapping file not found" | Copy `SwmmGoldSimBridge.json` from `examples/` to model directory |
+| "File not found" error | Copy `model.inp` from `examples/` to model directory |
+| Staircase patterns in results | GoldSim timestep must match SWMM ROUTING_STEP. For DYNWAVE routing, set `VARIABLE_STEP 0` in SWMM options |
+| Orifice flow oscillations | Switch from DYNWAVE to KINWAVE routing for better stability |
+| Runoff always zero | Verify rainfall input is being passed correctly, check `bridge_debug.log` |
+| Simulation crashes | Enable "Run Cleanup after each realization" in GoldSim |
 
 ## Building from Source
 
-To build the DLL from source code:
+**Requirements**: Visual Studio 2022, Windows SDK
 
-**Prerequisites**:
-- Visual Studio 2022 Community (C++ development tools)
-- Windows SDK
-
-**Steps**:
-1. Open `GSswmm.sln` in Visual Studio
-2. Select "Release | x64" configuration
-3. Build → Build Solution
-4. Output: `x64/Release/GSswmm.dll`
+```batch
+# Open GSswmm.sln
+# Select "Release | x64"
+# Build → Build Solution
+# Output: x64/Release/GSswmm.dll
+```
 
 **Run Tests**:
 ```batch
@@ -219,107 +120,142 @@ cd tests
 run_all_tests.bat
 ```
 
+## API Reference
+
+### Method IDs
+
+| ID | Method | Description |
+|----|--------|-------------|
+| 0 | XF_INITIALIZE | Initialize SWMM model |
+| 1 | XF_CALCULATE | Run one time step |
+| 2 | XF_REP_VERSION | Return DLL version (5.202) |
+| 3 | XF_REP_ARGUMENTS | Return input/output counts from JSON |
+| 99 | XF_CLEANUP | Cleanup and release resources |
+
+### Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Failure |
+| -1 | Failure with error message |
+
+## Logging
+
+Control log level in `SwmmGoldSimBridge.json`:
+
+```json
+{
+  "version": "1.0",
+  "logging_level": "INFO",
+  ...
+}
+```
+
+**Log Levels:**
+- `"OFF"` or `"NONE"` - No logging
+- `"ERROR"` - Errors only
+- `"INFO"` - Errors + important events (recommended)
+- `"DEBUG"` - Everything (verbose)
+
+Logs write to `bridge_debug.log` in your model directory. Change `logging_level` in the JSON and restart your simulation - no rebuild needed!
+
 ## Architecture
 
-The bridge consists of:
-
-- **SwmmGoldSimBridge.cpp**: Main bridge logic, handles GoldSim calls
-- **swmm5.h**: SWMM API header (EPA SWMM public interface)
-- **Tests**: Comprehensive unit tests for lifecycle, error handling, and calculations
-
-## Advanced Options
-
-### Logging
-
-The bridge can output debug logs. To enable:
-1. Set environment variable or config file (implementation-dependent)
-2. Check `bridge_debug.log` in your model directory
-
-### Multiple Subcatchments
-
-Currently, the bridge uses the first subcatchment (index 0) by default. For multiple subcatchments, you may need to:
-- Create multiple External elements (one per subcatchment), or
-- Modify the source code to support subcatchment index parameter
-
-### Custom SWMM Models
-
-You can use any valid SWMM model (`.inp` file). The bridge automatically:
-- Detects FLOW_UNITS and adjusts output accordingly
-- Validates ROUTING_STEP
-- Manages the SWMM simulation lifecycle
-
-## Support and Documentation
-
-- **Full Guides**: See `docs/` directory
-- **Pre-Flight Checklist**: [docs/PRE_FLIGHT_CHECKLIST.md](docs/PRE_FLIGHT_CHECKLIST.md)
-- **Sample Setup**: [docs/SAMPLE_GOLDSIM_MODEL_SETUP.md](docs/SAMPLE_GOLDSIM_MODEL_SETUP.md)
-- **Testing Guide**: [docs/GOLDSIM_TESTING_GUIDE.md](docs/GOLDSIM_TESTING_GUIDE.md)
-- **GoldSim External Elements Reference**: [docs/goldsim_external.txt](docs/goldsim_external.txt)
-
-## License
-
-This project integrates EPA SWMM (public domain) with GoldSim integration code. Refer to the license files in the repository for details.
-
-## Version
-
-- **DLL Version**: 4.1
-- **Last Updated**: January 2026
+- **SwmmGoldSimBridge.cpp**: Main bridge, loads JSON, drives simulation
+- **MappingLoader.cpp/h**: Parses JSON config
+- **generate_mapping.py**: Generates JSON from SWMM `.inp` file
+- **swmm5.h**: SWMM API header
 
 ## Known Limitations
 
-### Water Quality Tracking Not Supported
+### Variable Timestep Limitation (DYNWAVE Only)
 
-**Important**: The current SWMM5 API (version 5.2) does **not** expose pollutant concentrations or water quality data during live simulation. The bridge can only access hydraulic properties (flow, depth, volume) in real-time.
+**Issue**: When using Dynamic Wave routing with variable timesteps (`VARIABLE_STEP > 0`), results from API coupling may not match standalone EPA SWMM. Subcatchment runoff can appear to "stair-step" and peak flows may be underestimated.
 
-**What This Means**:
-- ❌ Cannot retrieve TSS, BOD, or other pollutant concentrations during simulation
-- ❌ Cannot access node quality or link quality values in real-time
-- ✅ Can retrieve flow rates, water depths, and storage volumes
-- ✅ Can set rainfall inputs dynamically
+**Root Cause**: EPA SWMM with variable timesteps takes many small adaptive internal steps (0.5s, 1s, 2s) based on hydraulic conditions, even when `ROUTING_STEP` is set to minutes. The API only returns the final state after all sub-steps complete, missing intermediate runoff calculations.
 
-**Why This Limitation Exists**:
-The SWMM API's `swmm_getValue()` function only provides access to hydraulic properties. Water quality results are calculated and stored in the binary output file (`.out`) after simulation completion, not during runtime.
+**Solution**: Disable variable timesteps for API coupling:
 
-**Available Properties**:
-- Nodes: depth, head, volume, inflow, overflow
-- Links: flow, depth, velocity, top width
-- Subcatchments: runoff, rainfall, infiltration
+```
+VARIABLE_STEP        0
+```
 
-**Workaround**:
-If you need water quality data, you must:
-1. Run the complete SWMM simulation
-2. Use SWMM's post-processing tools to extract pollutant data from the `.out` file
-3. Import that data into GoldSim as a separate step
+This forces SWMM to use fixed timesteps equal to `ROUTING_STEP`, ensuring:
+- Consistent behavior at each API call
+- Runoff values update predictably
+- Results match between API and standalone SWMM
+- Peak flows are accurately captured
 
-This is a fundamental limitation of the SWMM5 API toolkit and cannot be resolved without changes to the EPA SWMM engine itself.
+**Recommended Settings for API Coupling**:
+```
+ROUTING_STEP         0:00:15    # Fixed timestep (15 seconds recommended)
+WET_STEP             00:00:15   # Match routing step for smooth runoff
+REPORT_STEP          00:00:15   # Match for consistent reporting
+VARIABLE_STEP        0          # REQUIRED: Disable variable stepping
+```
+
+**Note**: KINWAVE routing is not affected by this issue and works fine with any timestep settings.
+
+### Water Quality Not Supported
+
+The SWMM5 API doesn't expose pollutant concentrations during live simulation. Only hydraulic properties (flow, depth, volume) are accessible in real-time. Water quality results are only available in the `.out` file after simulation completion.
+
+## Version
+
+**DLL Version**: 5.202  
+**Last Updated**: January 2026
 
 ## Changelog
 
-### Version 4.1 (January 2026)
-- **Documentation**: Added comprehensive water quality limitation section
-- **Clarification**: Documented that SWMM5 API does not expose pollutant concentrations during live simulation
-- **API Investigation**: Confirmed only hydraulic properties (flow, depth, volume) are accessible in real-time
-- **No Code Changes**: DLL functionality remains unchanged from v4.0
+### v5.202 (January 2026)
+- Cleaned up repository structure (moved batch files to scripts/)
+- Removed build artifacts from root directory
+- Organized project for cleaner releases
 
-### Version 4.0 (January 2026)
-- **Treatment Train Support**: Added support for multi-stage treatment systems
-- **7 Output Variables**: Catchment discharge, bioswale volume, detention volume, retention volume, and flows through C1, C2, C3 links
-- **Enhanced Validation**: Comprehensive element validation during initialization
-- **Improved Logging**: Detailed debug logging with configurable log levels
-- **Robust Error Handling**: Better error messages and cleanup procedures
+### v5.201 (January 2026)
+- Added DEPTH property support for storage nodes and junctions
+- Updated examples documentation
+- Three example models included in release
 
-### Version 3.0 (January 2026)
-- **Multiple Storage Nodes**: Support for bioswale, detention, and retention basins
-- **Link Flow Tracking**: Monitor flows between treatment stages
-- **Element Discovery**: Automatic lookup of SWMM elements by name
+### v5.2 (January 2026)
+- Documented variable timestep limitation with DYNWAVE routing
+- Added VARIABLE_STEP 0 requirement to README
+- Consolidated all documentation into single README.md
 
-### Version 2.0 (January 2026)
-- **Storage Volume Output**: Added ability to retrieve storage node volumes
-- **Enhanced Testing**: Comprehensive test suite with unit and integration tests
+### v5.1 (January 2026)
+- Fixed timing synchronization between inputs and outputs
+- Inputs now properly applied before stepping simulation
+- Added pending input buffer to ensure correct temporal alignment
 
-### Version 1.0 (January 2026)
+### v5.0 (January 2026)
+- Config-driven interface via `SwmmGoldSimBridge.json`
+- Generate mapping with `python generate_mapping.py model.inp`
+- Removed hardcoded interface definitions
+- Dynamic input/output counts based on config
+
+### v4.1 (January 2026)
+- Documented water quality limitations
+- No code changes from v4.0
+
+### v4.0 (January 2026)
+- Treatment train support (7 outputs)
+- Enhanced validation and logging
+
+### v3.0 (January 2026)
+- Multiple storage nodes
+- Link flow tracking
+
+### v2.0 (January 2026)
+- Storage volume output
+- Comprehensive test suite
+
+### v1.0 (January 2026)
 - Initial release
-- Support for single subcatchment SWMM models
-- Time-synchronized rainfall input
-- Runoff output with SWMM unit conversion
-- Basic error handling and logging
+- Basic rainfall-runoff coupling
+
+## License
+
+Integrates EPA SWMM (public domain) with GoldSim. See license files for details.
+
+

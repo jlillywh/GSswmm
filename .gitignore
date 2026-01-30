@@ -26,6 +26,13 @@ model.rpt
 tests/model.out
 tests/model.rpt
 
+# SWMM Runtime Files in Root (should be in examples/)
+/model.inp
+/model.ini
+/output.txt
+/SwmmGoldSimBridge.json
+/bridge_debug.log
+
 # Log Files
 *.log
 bridge_debug.log
@@ -133,10 +140,14 @@ tests/*.obj
 !*.md
 !*.h
 !*.cpp
-!*.bat
 !*.ps1
 !*.inp
 !*.txt
+
+# Batch files - ignore build/test scripts
+*.bat
+!tests/*.bat
+!examples/*.bat
 
 # Keep DLLs in specific locations for distribution
 !GSswmm.dll
@@ -151,3 +162,6 @@ tests/*.obj
 !tests/*.ps1
 !tests/*.md
 !tests/*.inp
+
+# Ignore examples directory (will be zipped for release)
+examples/

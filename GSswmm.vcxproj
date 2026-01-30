@@ -135,9 +135,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="MappingLoader.cpp" />
     <ClCompile Include="SwmmGoldSimBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\MappingLoader.h" />
     <ClInclude Include="include\swmm5.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
