@@ -6,27 +6,32 @@ A DLL that connects [GoldSim](https://www.goldsim.com/) with [EPA SWMM5](https:/
 
 ### 1. Get Example Files
 
-Three complete examples are included in the release package (examples.zip):
+Three complete examples are included in the release package ([Download Latest GSswmm Release](https://github.com/jlillywh/GSswmm/releases/latest)):
 
 **Example 1 - Simple Model**
 - Simple kinematic wave model with precipitation gage
 - Includes a pond that drains via orifice
 - GoldSim controls rainfall and receives catchment runoff, pond volume, and outfall flow
 - Best for learning the basics
+<img width="826" height="602" alt="image" src="https://github.com/user-attachments/assets/19133f6d-11ae-4900-8eb8-6d909bb11406" />
+
 
 **Example 2 - Site Drainage**
 - EPA SWMM example model with 7 subcatchments
 - Uses dynamic wave routing with pipes leading to outfall
 - GoldSim controls precipitation for all subcatchments
 - Demonstrates multi-subcatchment coupling
+<img width="735" height="634" alt="image" src="https://github.com/user-attachments/assets/5633a031-0575-402e-bd60-abec64c717c8" />
+
 
 **Example 3 - Pump Control**
 - EPA SWMM pump control example
 - Overrides SWMM's built-in pump rules with GoldSim controller
 - Uses deadband control based on pond water level
 - Demonstrates real-time structure control from GoldSim
+<img width="856" height="604" alt="image" src="https://github.com/user-attachments/assets/f046993a-eba5-4e53-90df-ebe8bad0feca" />
 
-Extract examples.zip to get started with any of these models.
+Extract [Download Source Code (.zip)](https://github.com/jlillywh/GSswmm/archive/refs/heads/main.zip) to get started with any of these models.
 
 ### 2. Copy Files to GoldSim Directory
 
