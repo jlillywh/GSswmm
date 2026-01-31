@@ -1,4 +1,4 @@
-# GSswmm: GoldSim-SWMM Bridge
+# GS-SWMM: GoldSim-SWMM Bridge
 
 A DLL that connects [GoldSim](https://www.goldsim.com/) with [EPA SWMM5](https://www.epa.gov/water-research/storm-water-management-model-swmm). The interface is defined by a JSON config file you generate from your SWMM model.
 
@@ -6,7 +6,7 @@ A DLL that connects [GoldSim](https://www.goldsim.com/) with [EPA SWMM5](https:/
 
 ### 1. Get Example Files
 
-Three complete examples are included in the release package ([Download Latest GSswmm Release](https://github.com/jlillywh/GSswmm/releases/latest)):
+Three complete examples are included in the release package ([Download Latest GS-SWMM Release](https://github.com/jlillywh/GSswmm/releases/latest)):
 
 **Example 1 - Simple Model**
 - Simple kinematic wave model with precipitation gage
@@ -31,7 +31,7 @@ Three complete examples are included in the release package ([Download Latest GS
 - Demonstrates real-time structure control from GoldSim
 <img width="856" height="604" alt="image" src="https://github.com/user-attachments/assets/f046993a-eba5-4e53-90df-ebe8bad0feca" />
 
-Extract [Download Source Code (.zip)](https://github.com/jlillywh/GSswmm/archive/refs/heads/main.zip) to get started with any of these models.
+Extract [Download Source Code (.zip)](https://github.com/jlillywh/GS-SWMM/archive/refs/heads/main.zip) to get started with any of these models.
 
 ### 2. Copy Files to GoldSim Directory
 
