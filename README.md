@@ -33,7 +33,7 @@ Three complete examples are included in the release package ([Download Latest GS
 
 Extract [Download Source Code (.zip)](https://github.com/jlillywh/GS-SWMM/archive/refs/heads/main.zip) to get started with any of these models.
 
-### 2. Copy Files to GoldSim Directory
+### 2. Copy Files to Your Working Directory
 
 ```
 Your_Model_Directory/
@@ -50,8 +50,6 @@ Your_Model_Directory/
 - **Unload DLL after each use**: ☐ Unchecked
 - **Run Cleanup after each realization**: ☑ Checked
 - **Run in separate process space**: ☑ Checked
-
-Click "Get Argument Info" to see input/output counts from your JSON (should show 2 inputs, 3 outputs).
 
 ### 4. Match Time Steps
 
