@@ -33,17 +33,124 @@ Three complete examples are included in the release package ([Download Latest GS
 
 Extract [Download Source Code (.zip)](https://github.com/jlillywh/GS-SWMM/archive/refs/heads/main.zip) to get started with any of these models.
 
-### 2. Copy Files to Your Working Directory
+### 2. Generate Configuration File
+
+The bridge requires a JSON configuration file (`SwmmGoldSimBridge.json`) that maps SWMM elements to GoldSim inputs/outputs. Generate this file using the Python script:
+
+**Basic usage (auto-generates all outputs):**
+```bash
+python generate_mapping.py model.inp
+```
+
+This creates `SwmmGoldSimBridge.json` with:
+- **ElapsedTime** as input (always included automatically)
+- **All available outputs** from your model:
+  - Storage nodes → VOLUME
+  - Outfalls → FLOW
+  - Pumps, Orifices, Weirs → FLOW
+  - Subcatchments → RUNOFF
+
+**Add controllable inputs:**
+```bash
+# Control rainfall from rain gage R1
+python generate_mapping.py model.inp --input R1
+
+# Control multiple elements
+python generate_mapping.py model.inp --input R1 --input PUMP1 --input J2
+```
+
+**Specify exact outputs you need:**
+```bash
+# Only monitor specific elements
+python generate_mapping.py model.inp --input R1 --output SUB1 --output POND1 --output OUT1
+```
+
+**Available arguments:**
+- `--input` or `-i` : Add controllable input by element name (repeatable)
+  - Rain gages: Controls rainfall intensity
+  - Pumps/Orifices/Weirs: Controls setting (0.0 to 1.0)
+  - Junctions/Storage: Controls lateral inflow
+- `--output` or `-o` : Add output by element name (repeatable)
+  - If omitted, all elements are added as outputs
+- `--output-file` or `-f` : Specify output filename (default: SwmmGoldSimBridge.json)
+
+**Customizing the JSON:**
+
+After generation, you can manually edit `SwmmGoldSimBridge.json` to:
+1. **Remove unwanted outputs** - Delete entries you don't need to monitor
+2. **Change properties** - For example, change storage from VOLUME to DEPTH
+3. **Adjust logging** - Set `logging_level` to "DEBUG", "INFO", "ERROR", or "OFF"
+
+**Example: Simple Model Configuration**
+
+Here's the actual JSON from the Simple Model example (generated with `python generate_mapping.py model.inp --input R1 --output S1 --output POND --output OUT1`):
+
+```json
+{
+  "version": "1.0",
+  "logging_level": "ERROR",
+  "inp_file_hash": "5245d86855c599addf209ec8ff2956ca",
+  "input_count": 2,
+  "output_count": 3,
+  "inputs": [
+    {
+      "index": 0,
+      "name": "ElapsedTime",
+      "object_type": "SYSTEM",
+      "property": "ELAPSEDTIME"
+    },
+    {
+      "index": 1,
+      "name": "R1",
+      "object_type": "GAGE",
+      "property": "RAINFALL"
+    }
+  ],
+  "outputs": [
+    {
+      "index": 0,
+      "name": "S1",
+      "object_type": "SUBCATCH",
+      "property": "RUNOFF",
+      "swmm_index": 0
+    },
+    {
+      "index": 1,
+      "name": "POND",
+      "object_type": "STORAGE",
+      "property": "VOLUME",
+      "swmm_index": 0
+    },
+    {
+      "index": 2,
+      "name": "OUT1",
+      "object_type": "OUTFALL",
+      "property": "FLOW",
+      "swmm_index": 0
+    }
+  ]
+}
+```
+
+This configuration:
+- **Input[0]**: ElapsedTime (automatic)
+- **Input[1]**: Rainfall intensity for rain gage R1 (in/hr)
+- **Output[0]**: Subcatchment S1 runoff (CFS)
+- **Output[1]**: POND storage volume (cubic feet)
+- **Output[2]**: OUT1 outfall flow (CFS)
+
+### 3. Copy Files to Your Working Directory
 
 ```
 Your_Model_Directory/
-├── GSswmm.dll              (from release)
-├── swmm5.dll               (from release)
-├── model.inp               (from example)
-└── SwmmGoldSimBridge.json  (from example)
+├── GSswmm.dll                  (from release)
+├── swmm5.dll                   (from release)
+├── model.inp                   (your SWMM model)
+├── SwmmGoldSimBridge.json      (generated in step 2)
+└── generate_mapping.py         (optional, for regenerating config)
 ```
 
-### 3. Configure GoldSim External Element
+### 4. Configure GoldSim External Element
 
 - **DLL File**: `GSswmm.dll`
 - **Function Name**: `SwmmGoldSimBridge` (case-sensitive!)
@@ -51,7 +158,9 @@ Your_Model_Directory/
 - **Run Cleanup after each realization**: ☑ Checked
 - **Run in separate process space**: ☑ Checked
 
-### 4. Match Time Steps
+Click "Get Argument Info" to verify the input/output counts match your JSON configuration.
+
+### 5. Match Time Steps
 
 **CRITICAL**: Set GoldSim's Basic Time Step to match SWMM's `ROUTING_STEP` in `model.inp`.
 
@@ -59,11 +168,13 @@ Example models use different timesteps - check each model's `[OPTIONS]` section.
 
 **IMPORTANT**: When using Dynamic Wave (DYNWAVE) routing, you must set `VARIABLE_STEP 0` in your SWMM model options to disable variable timesteps. Variable timesteps cause inconsistent results between standalone SWMM and API coupling. See "Variable Timestep Limitation" section below for details.
 
-### 5. Map Inputs/Outputs
+### 6. Map Inputs/Outputs
 
 Check the `SwmmGoldSimBridge.json` file in your chosen example to see the input/output mapping. Each example has different elements being monitored and controlled.
 
-### 6. Run
+The input/output indices in GoldSim must match the `index` values in your JSON file. The "Get Argument Info" button in GoldSim will show you the total counts.
+
+### 7. Run
 
 Press F5 or Simulation → Run.
 
