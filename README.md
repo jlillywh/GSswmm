@@ -1,6 +1,38 @@
 # GS-SWMM: GoldSim-SWMM Bridge
 
-A DLL that connects [GoldSim](https://www.goldsim.com/) with [EPA SWMM5](https://www.epa.gov/water-research/storm-water-management-model-swmm). The interface is defined by a JSON config file you generate from your SWMM model.
+**Version 5.212** - Real-time coupling between GoldSim and EPA SWMM5
+
+## Overview
+
+GS-SWMM is a bridge DLL that enables real-time coupling between [GoldSim](https://www.goldsim.com/) dynamic simulation software and [EPA SWMM5](https://www.epa.gov/water-research/storm-water-management-model-swmm) stormwater model. This integration allows you to:
+
+- **Control SWMM from GoldSim** - Override rainfall, pump settings, and lateral flows during simulation
+- **Access SWMM results in real-time** - Read flows, depths, volumes, and storage at each timestep
+- **Model contaminant transport** - Track pollutant fate through stormwater systems and LID treatment trains
+- **Couple models** - Integrate SWMM hydraulics with GoldSim's contaminant transport, economics, or decision models
+
+### Key Features
+
+- **JSON-based configuration** - Simple mapping between SWMM elements and GoldSim inputs/outputs
+- **Automatic mapping generation** - Python script creates configuration from your SWMM model
+- **LID treatment train support** - Access individual LID unit storage, inflow, overflow, and drain flows
+- **Complete examples included** - Three working models to get you started quickly
+- **No SWMM GUI needed** - Runs entirely through the API during GoldSim simulation
+
+### Use Cases
+
+- **Contaminant fate modeling** - Track pollutants through stormwater systems with detailed hydraulics
+- **Real-time control** - Implement adaptive control strategies for pumps and gates
+- **Treatment train analysis** - Model water quality through series of LID practices
+- **Integrated modeling** - Combine stormwater hydraulics with watershed processes, economics, or risk analysis
+
+## What's New in v5.212
+
+**LID API Extensions** - Access individual LID unit data for contaminant transport modeling:
+- Track storage volumes in rain barrels, infiltration trenches, planters, etc.
+- Monitor inflow, overflow, and drain flows from each LID unit
+- Model treatment trains with detailed mass balance
+- Complete water balance tracking for all LID types
 
 ## Quick Start
 
@@ -206,8 +238,206 @@ The JSON file defines which SWMM elements map to GoldSim inputs/outputs.
 - **Link flows** (PUMP/ORIFICE/WEIR/CONDUIT) - Flow rate (CFS)
 - **Node inflow/depth** (JUNCTION) - Total inflow (CFS), depth (ft)
 - **Outfall flow** (OUTFALL) - Discharge rate (CFS)
+- **LID unit data** (LID) - Storage volume (cu ft), inflow rate (CFS), overflow rate (CFS), drain flow rate (CFS)
+  - Enables detailed treatment train modeling
+  - See [LID Support](#lid-low-impact-development-support) section below
 
 **Complete reference**: See input/output property codes in `include/swmm5.h`
+
+## LID (Low Impact Development) Support
+
+The bridge supports accessing storage volumes and flow rates from individual LID units deployed in subcatchments. This enables detailed contaminant transport modeling through LID treatment trains.
+
+### Composite ID Format
+
+LID outputs use a composite ID format to reference specific LID units:
+
+```
+SubcatchmentName/LIDControlName
+```
+
+**Example:** `S1/InfilTrench` refers to the "InfilTrench" LID control deployed in subcatchment "S1".
+
+### Generating LID Outputs
+
+Use the `--lid-outputs` flag with the mapping generator:
+
+```bash
+python generate_mapping.py model.inp --lid-outputs
+```
+
+This automatically discovers all LID deployments from the `[LID_USAGE]` section and creates output entries for each one.
+
+**Example Generated JSON:**
+```json
+{
+  "outputs": [
+    {
+      "index": 0,
+      "name": "S1/InfilTrench",
+      "object_type": "LID",
+      "property": "STORAGE_VOLUME"
+    },
+    {
+      "index": 1,
+      "name": "S1/InfilTrench",
+      "object_type": "LID",
+      "property": "SURFACE_INFLOW"
+    },
+    {
+      "index": 2,
+      "name": "S1/InfilTrench",
+      "object_type": "LID",
+      "property": "SURFACE_OUTFLOW"
+    }
+  ]
+}
+```
+
+### LID Output Properties
+
+Supported LID properties:
+- **STORAGE_VOLUME** - Total water storage volume across all LID layers (surface + soil + storage + pavement) in cubic feet or cubic meters
+- **SURFACE_INFLOW** - Inflow rate from subcatchment runoff entering the LID in CFS or CMS
+- **SURFACE_OUTFLOW** - Overflow rate when LID exceeds capacity in CFS or CMS
+- **DRAIN_FLOW** - Flow rate through underdrain in CFS or CMS
+
+Units match the model's flow units configuration.
+
+### How to Access LID Outputs
+
+**Step 1: Generate mapping with LID outputs**
+```bash
+python generate_mapping.py model.inp --lid-outputs
+```
+
+**Step 2: Customize properties in JSON**
+
+Edit the generated `SwmmGoldSimBridge.json` to specify which properties you need:
+
+```json
+{
+  "outputs": [
+    {
+      "index": 0,
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "SURFACE_INFLOW"
+    },
+    {
+      "index": 1,
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "STORAGE_VOLUME"
+    },
+    {
+      "index": 2,
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "DRAIN_FLOW"
+    },
+    {
+      "index": 3,
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "SURFACE_OUTFLOW"
+    }
+  ]
+}
+```
+
+**Step 3: Use in GoldSim**
+
+The outputs appear in order in your GoldSim External element:
+- Output[0] = Planter inflow rate
+- Output[1] = Planter storage volume
+- Output[2] = Planter drain flow
+- Output[3] = Planter overflow
+
+### Example: Complete LID Water Balance
+
+For a planter with underdrain, track the complete water balance:
+
+```json
+{
+  "outputs": [
+    {
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "SURFACE_INFLOW"
+    },
+    {
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "STORAGE_VOLUME"
+    },
+    {
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "DRAIN_FLOW"
+    },
+    {
+      "name": "S4/Planters",
+      "object_type": "LID",
+      "property": "SURFACE_OUTFLOW"
+    }
+  ]
+}
+```
+
+This tracks:
+- **Inflow** - Runoff entering the LID from the subcatchment
+- **Storage** - Water stored in the planter
+- **Drain Flow** - Treated water leaving through the underdrain
+- **Overflow** - Water overflowing when capacity is exceeded
+
+Use for mass balance: `Change in Storage = Inflow - Drain Flow - Overflow - Infiltration - Evaporation`
+
+For contaminant transport: `Load = Flow Rate × Concentration`
+
+### Example: LID Treatment Train
+
+For a subcatchment with multiple LID units in series:
+
+```
+[LID_USAGE]
+;;Subcatchment  LID_Process      Number  Area      Width
+S1              Bioswale         1       5000      10
+S1              DetentionPond    1       10000     50
+S1              RetentionPond    1       8000      40
+```
+
+Generate mapping:
+```bash
+python generate_mapping.py model.inp --input R1 --lid-outputs --output OUT1
+```
+
+This creates outputs for:
+- `S1/Bioswale` - Storage, inflow, overflow
+- `S1/DetentionPond` - Storage, inflow, overflow
+- `S1/RetentionPond` - Storage, inflow, overflow
+- `OUT1` - Final discharge flow
+
+In GoldSim, you can track water (and contaminant mass) through each treatment stage.
+
+### LID Types and Their Outputs
+
+Different LID types have different flow paths:
+
+| LID Type | Inflow | Storage | Drain Flow | Overflow |
+|----------|--------|---------|------------|----------|
+| Rain Barrel | ✓ | ✓ | ✓ (slow) | ✓ |
+| Infiltration Trench | ✓ | ✓ | - | ✓ |
+| Bioretention/Planter | ✓ | ✓ | ✓ | ✓ |
+| Porous Pavement | ✓ | ✓ | ✓ | rare |
+| Green Roof | ✓ | ✓ | ✓ | ✓ |
+| Vegetative Swale | ✓ | ✓ | - | ✓ |
+
+**Notes:**
+- Rain barrels drain slowly between storms (low drain flow during events)
+- Porous pavement rarely overflows (designed to infiltrate everything)
+- Infiltration trenches and swales don't have underdrains (infiltrate to native soil)
+- Use `SURFACE_OUTFLOW` for overflow, `DRAIN_FLOW` for underdrain discharge
 
 ## Troubleshooting
 
@@ -238,6 +468,26 @@ The JSON file defines which SWMM elements map to GoldSim inputs/outputs.
 cd tests
 run_all_tests.bat
 ```
+
+### For Developers: Custom SWMM5 Build for LID Support
+
+**⚠️ Note for Developers:** The LID output features in v5.212 require modifications to EPA SWMM5 source code. End users can use pre-built DLLs, but if you need to rebuild SWMM5:
+
+This version includes extensions to the EPA SWMM5 API that are **not in the standard SWMM5 release**. To use LID outputs, you must:
+
+1. Download EPA SWMM5 source code from https://github.com/USEPA/Stormwater-Management-Model
+2. Add the LID API functions from `swmm5_integration/SWMM5_LID_API_CODE.c` to `src/lid.c`
+3. Add the prototypes from `swmm5_integration/SWMM5_LID_API_PROTOTYPES.h` to `src/swmm5.h`
+4. Rebuild SWMM5 to generate a custom `swmm5.dll`
+5. Regenerate `swmm5.lib` using the provided `swmm5.def` file
+6. Rebuild GSswmm.dll with the updated library
+
+**What's Added:**
+- 6 new API functions: `swmm_getLidUCount()`, `swmm_getLidUName()`, `swmm_getLidUStorageVolume()`, `swmm_getLidUSurfaceInflow()`, `swmm_getLidUSurfaceOutflow()`, `swmm_getLidUDrainFlow()`
+- These expose existing SWMM internal data - no new calculations needed
+- See `swmm5_integration/` folder for complete code and instructions
+
+**For End Users:** Pre-built DLLs with LID support are included in releases. You don't need to rebuild SWMM5 unless you're modifying the source code.
 
 ## API Reference
 
@@ -320,61 +570,9 @@ VARIABLE_STEP        0          # REQUIRED: Disable variable stepping
 
 The SWMM5 API doesn't expose pollutant concentrations during live simulation. Only hydraulic properties (flow, depth, volume) are accessible in real-time. Water quality results are only available in the `.out` file after simulation completion.
 
-## Version
-
-**DLL Version**: 5.202  
-**Last Updated**: January 2026
-
-## Changelog
-
-### v5.202 (January 2026)
-- Cleaned up repository structure (moved batch files to scripts/)
-- Removed build artifacts from root directory
-- Organized project for cleaner releases
-
-### v5.201 (January 2026)
-- Added DEPTH property support for storage nodes and junctions
-- Updated examples documentation
-- Three example models included in release
-
-### v5.2 (January 2026)
-- Documented variable timestep limitation with DYNWAVE routing
-- Added VARIABLE_STEP 0 requirement to README
-- Consolidated all documentation into single README.md
-
-### v5.1 (January 2026)
-- Fixed timing synchronization between inputs and outputs
-- Inputs now properly applied before stepping simulation
-- Added pending input buffer to ensure correct temporal alignment
-
-### v5.0 (January 2026)
-- Config-driven interface via `SwmmGoldSimBridge.json`
-- Generate mapping with `python generate_mapping.py model.inp`
-- Removed hardcoded interface definitions
-- Dynamic input/output counts based on config
-
-### v4.1 (January 2026)
-- Documented water quality limitations
-- No code changes from v4.0
-
-### v4.0 (January 2026)
-- Treatment train support (7 outputs)
-- Enhanced validation and logging
-
-### v3.0 (January 2026)
-- Multiple storage nodes
-- Link flow tracking
-
-### v2.0 (January 2026)
-- Storage volume output
-- Comprehensive test suite
-
-### v1.0 (January 2026)
-- Initial release
-- Basic rainfall-runoff coupling
 
 ## License
 
-Integrates EPA SWMM (public domain) with GoldSim. See license files for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
-
+This software integrates with EPA SWMM5 (public domain) and GoldSim (commercial software). The bridge itself is open source under the MIT License.
