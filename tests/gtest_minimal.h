@@ -129,6 +129,18 @@ public:
         } \
     } while (0)
 
+#define EXPECT_DOUBLE_EQ(val1, val2) \
+    do { \
+        double v1 = (val1); \
+        double v2 = (val2); \
+        if (v1 != v2) { \
+            std::ostringstream oss; \
+            oss << "Expected: " << #val1 << " == " << #val2 << std::endl; \
+            oss << "  Actual: " << v1 << " vs " << v2; \
+            TestRegistry::Instance().RecordFailure(__FILE__, __LINE__, oss.str()); \
+        } \
+    } while (0)
+
 #define EXPECT_TRUE(condition) \
     do { \
         if (!(condition)) { \
@@ -209,14 +221,96 @@ public:
         } \
     } while (0)
 
+#define ASSERT_GE(val1, val2) \
+    do { \
+        auto v1 = (val1); \
+        auto v2 = (val2); \
+        if (!(v1 >= v2)) { \
+            std::ostringstream oss; \
+            oss << "Expected: " << #val1 << " >= " << #val2 << std::endl; \
+            oss << "  Actual: " << v1 << " vs " << v2; \
+            TestRegistry::Instance().RecordFailure(__FILE__, __LINE__, oss.str()); \
+            return; \
+        } \
+    } while (0)
+
+#define EXPECT_GE(val1, val2) \
+    do { \
+        auto v1 = (val1); \
+        auto v2 = (val2); \
+        if (!(v1 >= v2)) { \
+            std::ostringstream oss; \
+            oss << "Expected: " << #val1 << " >= " << #val2 << std::endl; \
+            oss << "  Actual: " << v1 << " vs " << v2; \
+            TestRegistry::Instance().RecordFailure(__FILE__, __LINE__, oss.str()); \
+        } \
+    } while (0)
+
+#define EXPECT_LE(val1, val2) \
+    do { \
+        auto v1 = (val1); \
+        auto v2 = (val2); \
+        if (!(v1 <= v2)) { \
+            std::ostringstream oss; \
+            oss << "Expected: " << #val1 << " <= " << #val2 << std::endl; \
+            oss << "  Actual: " << v1 << " vs " << v2; \
+            TestRegistry::Instance().RecordFailure(__FILE__, __LINE__, oss.str()); \
+        } \
+    } while (0)
+
+#define SUCCEED() \
+    do { \
+        /* Test passes - no action needed */ \
+    } while (0)
+
 //-----------------------------------------------------------------------------
-// Test Definition Macro
+// Test Fixture Support
+//-----------------------------------------------------------------------------
+namespace testing {
+    class Test {
+    public:
+        virtual ~Test() {}
+        virtual void SetUp() {}
+        virtual void TearDown() {}
+    };
+}
+
+//-----------------------------------------------------------------------------
+// Test Definition Macros
 //-----------------------------------------------------------------------------
 #define TEST(test_suite_name, test_name) \
     void test_suite_name##_##test_name##_TestBody(); \
     TestRegistrar test_suite_name##_##test_name##_registrar( \
         #test_suite_name, #test_name, test_suite_name##_##test_name##_TestBody); \
     void test_suite_name##_##test_name##_TestBody()
+
+#define TEST_F(test_fixture, test_name) \
+    class test_fixture##_##test_name##_Test : public test_fixture { \
+    public: \
+        test_fixture##_##test_name##_Test() {} \
+        void RunTest() { \
+            this->SetUp(); \
+            this->TestBody(); \
+            this->TearDown(); \
+        } \
+        void TestBody(); \
+    }; \
+    void test_fixture##_##test_name##_TestFunc() { \
+        test_fixture##_##test_name##_Test test; \
+        test.RunTest(); \
+    } \
+    TestRegistrar test_fixture##_##test_name##_registrar( \
+        #test_fixture, #test_name, test_fixture##_##test_name##_TestFunc); \
+    void test_fixture##_##test_name##_Test::TestBody()
+
+//-----------------------------------------------------------------------------
+// Google Test Compatibility
+//-----------------------------------------------------------------------------
+namespace testing {
+    inline void InitGoogleTest(int* argc, char** argv) {
+        // Minimal implementation - just parse basic flags if needed
+    }
+}
 
 //-----------------------------------------------------------------------------
 // Main Test Runner

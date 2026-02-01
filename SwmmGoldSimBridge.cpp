@@ -9,7 +9,7 @@
 #include "include/swmm5.h"
 #include "include/MappingLoader.h"
 
-#define DLL_VERSION 5.202
+#define DLL_VERSION 5.212
 #define CONFIG_FILE "SwmmGoldSimBridge.json"
 #define PROPERTY_SKIP -1
 
@@ -21,7 +21,7 @@ static void Log(int level, const char* fmt, ...) {
     static bool first = true;
     FILE* f = NULL;
     if (fopen_s(&f, "bridge_debug.log", first ? "w" : "a") == 0 && f) {
-        if (first) { fprintf(f, "GSswmm Bridge v5.202\n"); first = false; }
+        if (first) { fprintf(f, "GSswmm Bridge v5.212 (with LID API)\n"); first = false; }
         SYSTEMTIME st; GetLocalTime(&st);
         const char* tag = (level == 1) ? "ERROR" : (level == 2) ? "INFO " : "DEBUG";
         fprintf(f, "[%02d:%02d:%02d] [%s] ", st.wHour, st.wMinute, st.wSecond, tag);
@@ -40,7 +40,27 @@ static void Log(int level, const char* fmt, ...) {
 #define XF_FAILURE      1
 #define XF_FAILURE_WITH_MSG -1
 
-struct Resolved { int iface_idx; int prop_enum; int swmm_idx; };
+struct Resolved { 
+    int iface_idx;   // GoldSim interface index
+    int prop_enum;   // SWMM property enum (or -1 for LID)
+    int swmm_idx;    // Subcatchment index (for LID) or element index
+    int lid_idx;     // LID unit index (only for LID outputs, -1 otherwise)
+    bool is_lid;     // True if this is an LID output
+    std::string lid_property;  // LID property name (e.g., "STORAGE_VOLUME", "SURFACE_OUTFLOW")
+    
+    // Constructor for regular outputs (backward compatibility)
+    Resolved(int iface, int prop, int swmm) 
+        : iface_idx(iface), prop_enum(prop), swmm_idx(swmm), lid_idx(-1), is_lid(false), lid_property("") {}
+    
+    // Static factory method for LID outputs
+    static Resolved CreateLidOutput(int iface, int subcatch, int lid, const std::string& property) {
+        Resolved r(iface, -1, subcatch);
+        r.lid_idx = lid;
+        r.is_lid = true;
+        r.lid_property = property;
+        return r;
+    }
+};
 
 // State
 static MappingLoader s_mapping;
@@ -92,6 +112,58 @@ static int OutputPropToEnum(const std::string& ot, const std::string& prop) {
     return -1;
 }
 
+/**
+ * @brief Parse a composite ID into subcatchment and LID names
+ * @param name The composite ID string (e.g., "S1/InfilTrench")
+ * @param subcatch_name Output parameter for subcatchment name
+ * @param lid_name Output parameter for LID control name
+ * @return true if the ID contains a "/" separator (is composite), false otherwise
+ * @note Non-composite IDs return false for backward compatibility
+ */
+static bool ParseCompositeID(const std::string& name, 
+                              std::string& subcatch_name,
+                              std::string& lid_name) {
+    size_t slash_pos = name.find('/');
+    if (slash_pos == std::string::npos) {
+        return false;  // Not a composite ID
+    }
+    
+    subcatch_name = name.substr(0, slash_pos);
+    lid_name = name.substr(slash_pos + 1);
+    return true;
+}
+
+/**
+ * @brief Resolve LID unit index by name within a subcatchment
+ * @param subcatch_idx Zero-based subcatchment index
+ * @param lid_name LID control name to search for
+ * @return LID unit index (>= 0) if found, -1 if not found
+ * @note Enumerates all LID units in the subcatchment using swmm_getLidUCount()
+ * @note Matches LID control name using swmm_getLidUName()
+ */
+static int ResolveLidIndex(int subcatch_idx, const std::string& lid_name) {
+    int lid_count = swmm_getLidUCount(subcatch_idx);
+    if (lid_count < 0) {
+        Log(1, "ResolveLidIndex: swmm_getLidUCount returned %d for subcatch_idx=%d", lid_count, subcatch_idx);
+        return -1;  // Invalid subcatchment index
+    }
+    
+    Log(2, "ResolveLidIndex: Searching for '%s' among %d LID units in subcatch_idx=%d", lid_name.c_str(), lid_count, subcatch_idx);
+    
+    char name_buf[64];
+    for (int i = 0; i < lid_count; i++) {
+        swmm_getLidUName(subcatch_idx, i, name_buf, sizeof(name_buf));
+        Log(2, "  LID[%d]: '%s'", i, name_buf);
+        if (lid_name == name_buf) {
+            Log(2, "  Match found at index %d", i);
+            return i;  // Found matching LID unit
+        }
+    }
+    
+    Log(1, "ResolveLidIndex: No match found for '%s'", lid_name.c_str());
+    return -1;  // Not found
+}
+
 static bool LoadMapping(double* outargs, int* status) {
     if (s_mapping_loaded) return true;
     std::string err;
@@ -115,6 +187,7 @@ static bool LoadMapping(double* outargs, int* status) {
 
 static void Cleanup(int* status, double* outargs) {
     if (!s_swmm_running) return;
+    
     int e = swmm_end();
     int c = swmm_close();
     s_swmm_running = false;
@@ -216,21 +289,64 @@ extern "C" void __declspec(dllexport) SwmmGoldSimBridge(int methodID, int* statu
             s_outputs.clear();
             for (const auto& out : s_mapping.GetOutputs()) {
                 Log(2, "  Output[%d]: %s (%s/%s)", out.interface_index, out.name.c_str(), out.object_type.c_str(), out.property.c_str());
-                int obj = ObjTypeToSwmm(out.object_type);
-                int prop = OutputPropToEnum(out.object_type, out.property);
-                if (obj < 0 || prop < 0) {
-                    sprintf_s(s_error_buf, "Unknown output: %s/%s", out.object_type.c_str(), out.property.c_str());
-                    Log(1, "%s", s_error_buf);
-                    Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                
+                // Check if this is an LID output (either by object_type or composite ID)
+                std::string subcatch_name, lid_name;
+                bool is_lid_output = (out.object_type == "LID") || ParseCompositeID(out.name, subcatch_name, lid_name);
+                
+                if (is_lid_output) {
+                    // This is an LID output
+                    // If object_type is "LID" but name isn't composite, parse it now
+                    if (out.object_type == "LID" && subcatch_name.empty()) {
+                        if (!ParseCompositeID(out.name, subcatch_name, lid_name)) {
+                            sprintf_s(s_error_buf, "LID output must use composite ID format 'Subcatchment/LIDControl': %s", out.name.c_str());
+                            Log(1, "%s", s_error_buf);
+                            Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                        }
+                    }
+                    
+                    Log(2, "    Detected LID output: subcatch='%s', lid='%s'", subcatch_name.c_str(), lid_name.c_str());
+                    
+                    // Resolve subcatchment index
+                    int subcatch_idx = swmm_getIndex(swmm_SUBCATCH, subcatch_name.c_str());
+                    if (subcatch_idx < 0) {
+                        sprintf_s(s_error_buf, "Subcatchment not found in composite ID: %s", out.name.c_str());
+                        Log(1, "%s", s_error_buf);
+                        Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                    }
+                    
+                    // Debug: Check LID count for this subcatchment
+                    int lid_count = swmm_getLidUCount(subcatch_idx);
+                    Log(2, "    Subcatchment '%s' (idx=%d) has %d LID units", subcatch_name.c_str(), subcatch_idx, lid_count);
+                    
+                    // Resolve LID unit index
+                    int lid_idx = ResolveLidIndex(subcatch_idx, lid_name);
+                    if (lid_idx < 0) {
+                        sprintf_s(s_error_buf, "LID unit not found in composite ID: %s (subcatch has %d LID units)", out.name.c_str(), lid_count);
+                        Log(1, "%s", s_error_buf);
+                        Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                    }
+                    
+                    Log(2, "    Resolved LID: subcatch_idx=%d, lid_idx=%d, property=%s", subcatch_idx, lid_idx, out.property.c_str());
+                    s_outputs.push_back(Resolved::CreateLidOutput(out.interface_index, subcatch_idx, lid_idx, out.property));
+                } else {
+                    // Regular (non-LID) output - use existing logic
+                    int obj = ObjTypeToSwmm(out.object_type);
+                    int prop = OutputPropToEnum(out.object_type, out.property);
+                    if (obj < 0 || prop < 0) {
+                        sprintf_s(s_error_buf, "Unknown output: %s/%s", out.object_type.c_str(), out.property.c_str());
+                        Log(1, "%s", s_error_buf);
+                        Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                    }
+                    int idx = swmm_getIndex((swmm_Object)obj, out.name.c_str());
+                    if (idx < 0) {
+                        sprintf_s(s_error_buf, "Element not found: %s", out.name.c_str());
+                        Log(1, "%s", s_error_buf);
+                        Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
+                    }
+                    Log(2, "    Resolved: obj=%d, prop=%d, idx=%d", obj, prop, idx);
+                    s_outputs.push_back(Resolved(out.interface_index, prop, idx));
                 }
-                int idx = swmm_getIndex((swmm_Object)obj, out.name.c_str());
-                if (idx < 0) {
-                    sprintf_s(s_error_buf, "Element not found: %s", out.name.c_str());
-                    Log(1, "%s", s_error_buf);
-                    Cleanup(status, outargs); SetError(outargs, status, s_error_buf); return;
-                }
-                Log(2, "    Resolved: obj=%d, prop=%d, idx=%d", obj, prop, idx);
-                s_outputs.push_back({ out.interface_index, prop, idx });
             }
 
             s_swmm_running = true;
@@ -257,9 +373,35 @@ extern "C" void __declspec(dllexport) SwmmGoldSimBridge(int methodID, int* statu
                 // Get initial outputs (before any stepping)
                 Log(2, "Getting %zu initial outputs", s_outputs.size());
                 for (const auto& r : s_outputs) {
-                    double val = swmm_getValue(r.prop_enum, r.swmm_idx);
+                    double val;
+                    if (r.is_lid) {
+                        // LID output - use appropriate API based on property
+                        if (r.lid_property == "STORAGE_VOLUME") {
+                            val = swmm_getLidUStorageVolume(r.swmm_idx, r.lid_idx);
+                            Log(3, "  Output[%d]: LID storage volume, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                                r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                        } else if (r.lid_property == "SURFACE_OUTFLOW") {
+                            val = swmm_getLidUSurfaceOutflow(r.swmm_idx, r.lid_idx);
+                            Log(3, "  Output[%d]: LID surface outflow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                                r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                        } else if (r.lid_property == "SURFACE_INFLOW") {
+                            val = swmm_getLidUSurfaceInflow(r.swmm_idx, r.lid_idx);
+                            Log(3, "  Output[%d]: LID surface inflow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                                r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                        } else if (r.lid_property == "DRAIN_FLOW") {
+                            val = swmm_getLidUDrainFlow(r.swmm_idx, r.lid_idx);
+                            Log(3, "  Output[%d]: LID drain flow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                                r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                        } else {
+                            Log(1, "Unknown LID property: %s", r.lid_property.c_str());
+                            val = 0.0;
+                        }
+                    } else {
+                        // Regular output - use existing API
+                        val = swmm_getValue(r.prop_enum, r.swmm_idx);
+                        Log(3, "  Output[%d]: prop=%d, idx=%d, value=%.6f", r.iface_idx, r.prop_enum, r.swmm_idx, val);
+                    }
                     outargs[r.iface_idx] = val;
-                    Log(2, "  Output[%d]: prop=%d, idx=%d, value=%.6f", r.iface_idx, r.prop_enum, r.swmm_idx, val);
                 }
                 
                 // Store the inputs for the next timestep
@@ -307,9 +449,35 @@ extern "C" void __declspec(dllexport) SwmmGoldSimBridge(int methodID, int* statu
             // Get outputs for the timestep we just completed
             Log(2, "Getting %zu outputs", s_outputs.size());
             for (const auto& r : s_outputs) {
-                double val = swmm_getValue(r.prop_enum, r.swmm_idx);
+                double val;
+                if (r.is_lid) {
+                    // LID output - use appropriate API based on property
+                    if (r.lid_property == "STORAGE_VOLUME") {
+                        val = swmm_getLidUStorageVolume(r.swmm_idx, r.lid_idx);
+                        Log(3, "  Output[%d]: LID storage volume, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                            r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                    } else if (r.lid_property == "SURFACE_OUTFLOW") {
+                        val = swmm_getLidUSurfaceOutflow(r.swmm_idx, r.lid_idx);
+                        Log(3, "  Output[%d]: LID surface outflow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                            r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                    } else if (r.lid_property == "SURFACE_INFLOW") {
+                        val = swmm_getLidUSurfaceInflow(r.swmm_idx, r.lid_idx);
+                        Log(3, "  Output[%d]: LID surface inflow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                            r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                    } else if (r.lid_property == "DRAIN_FLOW") {
+                        val = swmm_getLidUDrainFlow(r.swmm_idx, r.lid_idx);
+                        Log(3, "  Output[%d]: LID drain flow, subcatch_idx=%d, lid_idx=%d, value=%.6f", 
+                            r.iface_idx, r.swmm_idx, r.lid_idx, val);
+                    } else {
+                        Log(1, "Unknown LID property: %s", r.lid_property.c_str());
+                        val = 0.0;
+                    }
+                } else {
+                    // Regular output - use existing API
+                    val = swmm_getValue(r.prop_enum, r.swmm_idx);
+                    Log(3, "  Output[%d]: prop=%d, idx=%d, value=%.6f", r.iface_idx, r.prop_enum, r.swmm_idx, val);
+                }
                 outargs[r.iface_idx] = val;
-                Log(2, "  Output[%d]: prop=%d, idx=%d, value=%.6f", r.iface_idx, r.prop_enum, r.swmm_idx, val);
             }
             
             // Store the NEW inputs for the next timestep

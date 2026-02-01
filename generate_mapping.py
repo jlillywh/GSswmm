@@ -127,6 +127,109 @@ def parse_output_spec(spec, sections):
     raise ValueError(f"Output element '{name}' not found in model")
 
 
+def parse_lid_usage(sections):
+    """Parse [LID_USAGE] section to identify LID deployments.
+    
+    The [LID_USAGE] section in SWMM INP files defines which LID controls
+    are deployed in which subcatchments. Each line specifies:
+    - Subcatchment name (column 0)
+    - LID control name (column 1)
+    - Number of units, area, width, etc. (remaining columns)
+    
+    Returns a list of dictionaries with 'subcatchment' and 'lid_control' keys.
+    """
+    lid_deployments = []
+    
+    for line in sections.get('LID_USAGE', []):
+        # LID_USAGE format: Subcatchment LID_Process Number Area Width ...
+        # We need at least subcatchment name (index 0) and LID control name (index 1)
+        if len(line) >= 2:
+            subcatch_name = line[0]
+            lid_control_name = line[1]
+            lid_deployments.append({
+                'subcatchment': subcatch_name,
+                'lid_control': lid_control_name
+            })
+    
+    return lid_deployments
+
+
+def parse_lid_controls(sections):
+    """Parse [LID_CONTROLS] section to get list of defined LID control names.
+    
+    Returns a set of LID control names.
+    """
+    lid_controls = set()
+    
+    for line in sections.get('LID_CONTROLS', []):
+        # LID_CONTROLS format: Name Type/Layer Parameters...
+        # The first column is the LID control name
+        if len(line) >= 1:
+            lid_control_name = line[0]
+            lid_controls.add(lid_control_name)
+    
+    return lid_controls
+
+
+def validate_lid_deployments(sections):
+    """Validate that LID controls in [LID_USAGE] exist in [LID_CONTROLS].
+    
+    Raises ValueError if validation fails.
+    """
+    lid_deployments = parse_lid_usage(sections)
+    lid_controls = parse_lid_controls(sections)
+    
+    # Check each deployment references a valid control
+    missing_controls = set()
+    for deployment in lid_deployments:
+        lid_control = deployment['lid_control']
+        if lid_control not in lid_controls:
+            missing_controls.add(lid_control)
+    
+    if missing_controls:
+        raise ValueError(
+            f"LID controls referenced in [LID_USAGE] but not defined in [LID_CONTROLS]: "
+            f"{', '.join(sorted(missing_controls))}"
+        )
+
+
+def generate_lid_outputs(sections):
+    """Generate LID output mappings with composite IDs.
+    
+    Creates output entries for each LID unit deployed in the model.
+    Each output uses the composite ID format "SubcatchmentName/LIDControlName"
+    to uniquely identify the LID unit.
+    
+    The bridge will parse these composite IDs at runtime to:
+    1. Resolve the subcatchment index
+    2. Enumerate LID units in that subcatchment
+    3. Match the LID control name to get the LID unit index
+    4. Retrieve storage volume using swmm_getLidUStorageVolume()
+    
+    Returns a list of output dictionaries for LID storage volumes.
+    Each output uses composite ID format: "SubcatchmentName/LIDControlName"
+    """
+    # First validate that all LID deployments reference valid controls
+    validate_lid_deployments(sections)
+    
+    lid_deployments = parse_lid_usage(sections)
+    outputs = []
+    
+    for idx, deployment in enumerate(lid_deployments):
+        # Create composite ID: "SubcatchmentName/LIDControlName"
+        composite_id = f"{deployment['subcatchment']}/{deployment['lid_control']}"
+        
+        outputs.append({
+            "index": idx,
+            "name": composite_id,
+            "object_type": "LID",
+            "property": "STORAGE_VOLUME",
+            "swmm_index": 0  # Resolved at runtime by bridge
+        })
+    
+    return outputs
+
+
 def generate_all_outputs(sections):
     """Generate outputs for all elements (original behavior)."""
     outputs = []
@@ -207,7 +310,7 @@ def generate_all_outputs(sections):
     return outputs
 
 
-def generate_mapping(inp_path, input_specs=None, output_specs=None):
+def generate_mapping(inp_path, input_specs=None, output_specs=None, include_lid_outputs=False):
     """Generate mapping JSON."""
     sections = parse_inp_sections(inp_path)
     content_hash = compute_hash(inp_path)
@@ -240,6 +343,16 @@ def generate_mapping(inp_path, input_specs=None, output_specs=None):
     else:
         # Generate all outputs (original behavior)
         outputs = generate_all_outputs(sections)
+    
+    # Add LID outputs if requested
+    if include_lid_outputs:
+        lid_outputs = generate_lid_outputs(sections)
+        # Re-index LID outputs to follow existing outputs
+        start_idx = len(outputs)
+        for lid_out in lid_outputs:
+            lid_out["index"] = start_idx
+            outputs.append(lid_out)
+            start_idx += 1
     
     # Create mapping
     mapping = {
@@ -276,12 +389,21 @@ Examples:
   
   # Node lateral flow input
   python generate_mapping_simple.py model.inp --input J2
+  
+  # Include LID storage volume outputs
+  python generate_mapping_simple.py model.inp --lid-outputs
+  python generate_mapping_simple.py model.inp --input R1 --lid-outputs --output OUT1
 
 Notes:
   - Element names are auto-detected from the .inp file
   - If no outputs specified, all elements become outputs
   - Storage nodes default to VOLUME property
   - Use --output-file to specify different output filename
+  - --lid-outputs generates composite ID outputs (SubcatchmentName/LIDControlName)
+    for all LID units with STORAGE_VOLUME property
+  - LID composite IDs reference specific LID units deployed in subcatchments
+  - Example: "S1/InfilTrench" refers to InfilTrench LID control in subcatchment S1
+  - LID outputs are validated against [LID_CONTROLS] section in the INP file
         """
     )
     
@@ -290,6 +412,8 @@ Notes:
                        help='Add input element by name (e.g., R1, P1, OR1)')
     parser.add_argument('--output', '-o', action='append', dest='outputs',
                        help='Add output element by name (e.g., SUB1, POND1, OUT1)')
+    parser.add_argument('--lid-outputs', action='store_true',
+                       help='Include LID storage volume outputs using composite IDs (SubcatchmentName/LIDControlName)')
     parser.add_argument('--output-file', '-f', default='SwmmGoldSimBridge.json',
                        help='Output JSON file (default: SwmmGoldSimBridge.json)')
     
@@ -297,7 +421,7 @@ Notes:
     
     try:
         print(f"Processing: {args.inp_file}")
-        mapping = generate_mapping(args.inp_file, args.inputs, args.outputs)
+        mapping = generate_mapping(args.inp_file, args.inputs, args.outputs, args.lid_outputs)
         
         with open(args.output_file, 'w', encoding='utf-8') as f:
             json.dump(mapping, f, indent=2)

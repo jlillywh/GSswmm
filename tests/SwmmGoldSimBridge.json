@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "logging_level": "INFO",
+  "input_count": 1,
+  "output_count": 1,
+  "inputs": [
+    {
+      "index": 0,
+      "name": "ElapsedTime",
+      "object_type": "SYSTEM",
+      "property": "ELAPSEDTIME"
+    }
+  ],
+  "outputs": [
+    {
+      "index": 0,
+      "name": "INVALID_SUBCATCH/InfilTrench",
+      "object_type": "LID",
+      "property": "STORAGE_VOLUME",
+      "swmm_index": 0
+    }
+  ]
+}

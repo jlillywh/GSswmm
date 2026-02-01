@@ -150,6 +150,14 @@ void   DLLEXPORT swmm_writeLine(const char *line);
 void   DLLEXPORT swmm_decodeDate(double date, int *year, int *month, int *day,
                  int *hour, int *minute, int *second, int *dayOfWeek);
 
+// LID API Extensions - Get LID unit information
+int    DLLEXPORT swmm_getLidUCount(int subcatchIndex);
+void   DLLEXPORT swmm_getLidUName(int subcatchIndex, int lidIndex, char* name, int size);
+double DLLEXPORT swmm_getLidUStorageVolume(int subcatchIndex, int lidIndex);
+double DLLEXPORT swmm_getLidUSurfaceOutflow(int subcatchIndex, int lidIndex);
+double DLLEXPORT swmm_getLidUSurfaceInflow(int subcatchIndex, int lidIndex);
+double DLLEXPORT swmm_getLidUDrainFlow(int subcatchIndex, int lidIndex);
+
 #ifdef __cplusplus 
 }   // matches the linkage specification from above */ 
 #endif

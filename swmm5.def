@@ -1,0 +1,26 @@
+LIBRARY swmm5
+EXPORTS
+    swmm_open
+    swmm_start
+    swmm_step
+    swmm_end
+    swmm_close
+    swmm_report
+    swmm_getMassBalErr
+    swmm_getVersion
+    swmm_getError
+    swmm_getWarnings
+    swmm_getCount
+    swmm_getName
+    swmm_getIndex
+    swmm_getValue
+    swmm_setValue
+    swmm_getSavedValue
+    swmm_writeLine
+    swmm_decodeDate
+    swmm_getLidUCount
+    swmm_getLidUName
+    swmm_getLidUStorageVolume
+    swmm_getLidUSurfaceOutflow
+    swmm_getLidUSurfaceInflow
+    swmm_getLidUDrainFlow

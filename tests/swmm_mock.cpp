@@ -294,14 +294,28 @@ extern "C" double swmm_getValue(int type, int index)
     return g_mock_state.getValue_return_value;
 }
 
+// Forward declaration for LID API stub error retrieval
+extern "C" const char* SwmmLidStub_GetLastError();
+
 extern "C" int swmm_getError(char* errMsg, int msgLen)
 {
     g_mock_state.getError_call_count++;
     
     if (errMsg && msgLen > 0)
     {
-        strncpy(errMsg, g_mock_state.error_message.c_str(), msgLen - 1);
-        errMsg[msgLen - 1] = '\0';
+        // Check for LID API errors first
+        const char* lidError = SwmmLidStub_GetLastError();
+        if (lidError && lidError[0] != '\0')
+        {
+            strncpy(errMsg, lidError, msgLen - 1);
+            errMsg[msgLen - 1] = '\0';
+        }
+        else
+        {
+            // Fall back to mock error message
+            strncpy(errMsg, g_mock_state.error_message.c_str(), msgLen - 1);
+            errMsg[msgLen - 1] = '\0';
+        }
     }
     
     return 0;

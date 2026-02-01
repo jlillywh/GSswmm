@@ -8,41 +8,9 @@
 #ifndef SWMM_MOCK_H
 #define SWMM_MOCK_H
 
+#include "../include/swmm5.h"
 #include <string>
 #include <vector>
-
-//-----------------------------------------------------------------------------
-// SWMM API Constants (from swmm5.h)
-//-----------------------------------------------------------------------------
-enum SM_ObjectType {
-    swmm_GAGE = 0,
-    swmm_SUBCATCH = 1,
-    swmm_NODE = 2,
-    swmm_LINK = 3,
-    swmm_POLLUT = 4,
-    swmm_LANDUSE = 5,
-    swmm_TIMEPATTERN = 6,
-    swmm_CURVE = 7,
-    swmm_TSERIES = 8,
-    swmm_CONTROL = 9,
-    swmm_TRANSECT = 10,
-    swmm_AQUIFER = 11,
-    swmm_UNITHYD = 12,
-    swmm_SNOWMELT = 13,
-    swmm_SHAPE = 14,
-    swmm_LID = 15
-};
-
-enum SM_SubcatchProperty {
-    swmm_SUBCATCH_RAINFALL = 0,
-    swmm_SUBCATCH_EVAP = 1,
-    swmm_SUBCATCH_INFIL = 2,
-    swmm_SUBCATCH_RUNOFF = 3,
-    swmm_SUBCATCH_GW_FLOW = 4,
-    swmm_SUBCATCH_GW_ELEV = 5,
-    swmm_SUBCATCH_SOIL_MOIST = 6,
-    swmm_SUBCATCH_WASHOFF = 7
-};
 
 //-----------------------------------------------------------------------------
 // Mock State and Configuration
@@ -160,6 +128,12 @@ void swmm_setValue(int type, int index, double value);
 double swmm_getValue(int type, int index);
 int swmm_getError(char* errMsg, int msgLen);
 int swmm_getCount(int objType);
+
+// LID API stub control functions
+void SwmmLidStub_Initialize(int subcatchCount);
+void SwmmLidStub_AddLidUnit(int subcatchIndex, const char* controlName, double initialVolume);
+void SwmmLidStub_Cleanup();
+const char* SwmmLidStub_GetLastError();
 
 #ifdef __cplusplus
 }

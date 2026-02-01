@@ -1,0 +1,7 @@
+/c
+/EHsc
+/W3
+/MD
+/DWINDOWS
+/I..
+swmm_lid_api_stub.cpp
